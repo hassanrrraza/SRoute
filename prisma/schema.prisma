@@ -1,0 +1,166 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// User accounts with role-based access control
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String   // ADMIN | DISPATCHER | DRIVER
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}
+
+// Drivers
+model Driver {
+  id             String    @id @default(cuid())
+  name           String
+  phone          String
+  licenseNumber  String    @unique
+  status         String    @default("AVAILABLE") // AVAILABLE | ON_TRIP | OFF_DUTY
+  hourlyRate     Float     // Rate per hour worked
+  assignedVehicleId String? @unique
+  assignedVehicle Vehicle?  @relation("DriverVehicle", fields: [assignedVehicleId], references: [id])
+  trips          Trip[]    @relation("DriverTrip")
+  payrollEntries PayrollEntry[]
+  calendarEvents CalendarEvent[] @relation("DriverCalendarEvent")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("drivers")
+}
+
+// Vehicles
+model Vehicle {
+  id        String  @id @default(cuid())
+  plate     String  @unique
+  make      String
+  model     String
+  capacity  Int     // Passenger capacity
+  status    String  @default("ACTIVE") // ACTIVE | MAINTENANCE | INACTIVE
+  driver    Driver? @relation("DriverVehicle")
+  trips     Trip[]  @relation("VehicleTrip")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("vehicles")
+}
+
+// Clients (passengers/customers to be invoiced)
+model Client {
+  id        String    @id @default(cuid())
+  name      String
+  phone     String
+  email     String    @unique
+  address   String
+  trips     Trip[]    @relation("ClientTrip")
+  invoices  Invoice[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("clients")
+}
+
+// Trips
+model Trip {
+  id              String    @id @default(cuid())
+  pickupAddress   String
+  dropoffAddress  String
+  scheduledTime   DateTime
+  completedTime   DateTime?
+  status          String    @default("SCHEDULED") // SCHEDULED | DISPATCHED | IN_PROGRESS | COMPLETED | CANCELLED
+  fare            Float
+  driverId        String
+  driver          Driver    @relation("DriverTrip", fields: [driverId], references: [id])
+  vehicleId       String
+  vehicle         Vehicle   @relation("VehicleTrip", fields: [vehicleId], references: [id])
+  clientId        String
+  client          Client    @relation("ClientTrip", fields: [clientId], references: [id])
+  invoices        Invoice[]
+  calendarEvent   CalendarEvent? @relation("TripCalendarEvent")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("trips")
+}
+
+// Invoices
+model Invoice {
+  id           String  @id @default(cuid())
+  invoiceNumber String  @unique
+  tripId       String
+  trip         Trip    @relation(fields: [tripId], references: [id])
+  clientId     String
+  client       Client  @relation(fields: [clientId], references: [id])
+  lineItems    InvoiceLineItem[]
+  subtotal     Float   @default(0)
+  tax          Float   @default(0)
+  total        Float   @default(0)
+  status       String  @default("DRAFT") // DRAFT | SENT | PAID | OVERDUE
+  issuedDate   DateTime @default(now())
+  dueDate      DateTime
+  paidDate     DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("invoices")
+}
+
+// Invoice line items
+model InvoiceLineItem {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity  Int
+  unitPrice Float
+  total     Float   // quantity * unitPrice
+
+  @@map("invoice_line_items")
+}
+
+// Payroll entries
+model PayrollEntry {
+  id             String   @id @default(cuid())
+  driverId       String
+  driver         Driver   @relation(fields: [driverId], references: [id])
+  periodStart    DateTime
+  periodEnd      DateTime
+  tripsCompleted Int      @default(0)
+  hoursWorked    Float    @default(0)
+  grossPay       Float    @default(0)
+  status         String   @default("PENDING") // PENDING | PAID
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("payroll_entries")
+}
+
+// Calendar events
+model CalendarEvent {
+  id            String   @id @default(cuid())
+  title         String
+  type          String   // TRIP | SHIFT | MAINTENANCE
+  startTime     DateTime
+  endTime       DateTime
+  relatedTripId String?  @unique
+  relatedTrip   Trip?    @relation("TripCalendarEvent", fields: [relatedTripId], references: [id])
+  relatedDriverId String?
+  relatedDriver Driver?  @relation("DriverCalendarEvent", fields: [relatedDriverId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("calendar_events")
+}
