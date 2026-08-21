@@ -65,6 +65,14 @@ async function getStats() {
     _sum: { total: true },
   });
 
+  // Pending payroll
+  const pendingPayrollEntries = await prisma.payrollEntry.findMany({
+    where: { status: "PENDING" },
+  });
+
+  const pendingPayrollCount = pendingPayrollEntries.length;
+  const pendingPayrollAmount = pendingPayrollEntries.reduce((sum, e) => sum + e.grossPay, 0);
+
   return {
     activeVehicles: vehicles.length,
     availableDrivers: drivers.length,
@@ -75,6 +83,8 @@ async function getStats() {
     overdueInvoices,
     totalRevenue: totalRevenue._sum.total || 0,
     weeklyRevenue: weeklyRevenue._sum.total || 0,
+    pendingPayrollCount,
+    pendingPayrollAmount,
   };
 }
 
@@ -270,6 +280,25 @@ export default async function Dashboard() {
                     {stats.overdueInvoices === 1
                       ? "1 invoice is overdue"
                       : `${stats.overdueInvoices} invoices are overdue`}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {stats.pendingPayrollCount > 0 && (
+              <Card className="border-yellow-200 bg-yellow-50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-yellow-900">
+                    <AlertCircle className="w-4 h-4" />
+                    Pending Payroll
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold text-yellow-600 mb-2">
+                    PKR {stats.pendingPayrollAmount.toLocaleString()}
+                  </p>
+                  <p className="text-sm text-yellow-800">
+                    {stats.pendingPayrollCount} {stats.pendingPayrollCount === 1 ? "entry" : "entries"}
                   </p>
                 </CardContent>
               </Card>

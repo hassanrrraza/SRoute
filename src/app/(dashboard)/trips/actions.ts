@@ -144,10 +144,19 @@ export async function updateTrip(data: z.infer<typeof updateTripSchema>) {
       include: { client: true, driver: true, vehicle: true },
     });
 
+    // Update calendar event if scheduled time changed
+    if (updatePayload.scheduledTime.getTime() !== oldTrip.scheduledTime.getTime()) {
+      await prisma.calendarEvent.updateMany({
+        where: { relatedTripId: id },
+        data: { startTime: updatePayload.scheduledTime },
+      });
+    }
+
     revalidatePath("/trips");
     revalidatePath("/dispatch");
     revalidatePath("/dashboard");
     revalidatePath("/drivers");
+    revalidatePath("/calendar");
     return { success: true, trip };
   } catch (error) {
     if (error instanceof ZodError) {
@@ -191,6 +200,11 @@ export async function deleteTrip(id: string) {
       }
     }
 
+    // Delete related calendar event first
+    await prisma.calendarEvent.deleteMany({
+      where: { relatedTripId: id },
+    });
+
     await prisma.trip.delete({
       where: { id },
     });
@@ -198,6 +212,7 @@ export async function deleteTrip(id: string) {
     revalidatePath("/trips");
     revalidatePath("/dispatch");
     revalidatePath("/dashboard");
+    revalidatePath("/calendar");
     return { success: true };
   } catch (error) {
     return { error: "Failed to delete trip" };
