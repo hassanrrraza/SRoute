@@ -40,8 +40,28 @@ async function getStats() {
     where: { status: { in: ["DRAFT", "SENT"] } },
   });
 
+  // Overdue invoices (past due date and not paid)
+  const overdueInvoices = await prisma.invoice.count({
+    where: {
+      status: { not: "PAID" },
+      dueDate: { lt: new Date() },
+    },
+  });
+
+  // Total all-time revenue
   const totalRevenue = await prisma.invoice.aggregate({
     where: { status: "PAID" },
+    _sum: { total: true },
+  });
+
+  // Weekly revenue (last 7 days, paid invoices)
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const weeklyRevenue = await prisma.invoice.aggregate({
+    where: {
+      status: "PAID",
+      paidDate: { gte: weekAgo },
+    },
     _sum: { total: true },
   });
 
@@ -52,7 +72,9 @@ async function getStats() {
     completedToday,
     inProgressToday,
     pendingInvoices,
+    overdueInvoices,
     totalRevenue: totalRevenue._sum.total || 0,
+    weeklyRevenue: weeklyRevenue._sum.total || 0,
   };
 }
 
@@ -207,19 +229,51 @@ export default async function Dashboard() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Paid Invoices</span>
+                  <span className="text-sm text-slate-600">This Week</span>
                   <span className="text-lg font-bold text-green-600">
-                    PKR {stats.totalRevenue.toLocaleString()}
+                    PKR {stats.weeklyRevenue.toLocaleString()}
                   </span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-2">
                   <div
                     className="bg-green-500 h-2 rounded-full"
-                    style={{ width: "65%" }}
+                    style={{
+                      width: `${Math.min(
+                        (stats.weeklyRevenue / Math.max(stats.weeklyRevenue, 50000)) * 100,
+                        100
+                      )}%`,
+                    }}
                   ></div>
+                </div>
+                <div className="pt-2 border-t border-slate-200">
+                  <p className="text-xs text-slate-600 mb-1">All-time total</p>
+                  <p className="text-lg font-bold text-slate-900">
+                    PKR {stats.totalRevenue.toLocaleString()}
+                  </p>
                 </div>
               </CardContent>
             </Card>
+
+            {stats.overdueInvoices > 0 && (
+              <Card className="border-red-200 bg-red-50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-red-900">
+                    <AlertCircle className="w-4 h-4" />
+                    Overdue Invoices
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold text-red-600 mb-2">
+                    {stats.overdueInvoices}
+                  </p>
+                  <p className="text-sm text-red-800">
+                    {stats.overdueInvoices === 1
+                      ? "1 invoice is overdue"
+                      : `${stats.overdueInvoices} invoices are overdue`}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
 
             <Card className="border-amber-200 bg-amber-50">
               <CardHeader className="pb-3">
