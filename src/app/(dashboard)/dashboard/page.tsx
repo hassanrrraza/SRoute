@@ -8,8 +8,75 @@ import {
   AlertCircle,
   TrendingUp,
 } from "lucide-react";
+import { prisma } from "@/lib/db";
 
-export default function Dashboard() {
+async function getStats() {
+  const vehicles = await prisma.vehicle.findMany({
+    where: { status: "ACTIVE" },
+  });
+
+  const drivers = await prisma.driver.findMany({
+    where: { status: "AVAILABLE" },
+  });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  const tripsToday = await prisma.trip.findMany({
+    where: {
+      scheduledTime: {
+        gte: today,
+        lt: tomorrow,
+      },
+    },
+  });
+
+  const completedToday = tripsToday.filter((t) => t.status === "COMPLETED").length;
+  const inProgressToday = tripsToday.filter((t) => t.status === "IN_PROGRESS").length;
+
+  const pendingInvoices = await prisma.invoice.count({
+    where: { status: { in: ["DRAFT", "SENT"] } },
+  });
+
+  const totalRevenue = await prisma.invoice.aggregate({
+    where: { status: "PAID" },
+    _sum: { total: true },
+  });
+
+  return {
+    activeVehicles: vehicles.length,
+    availableDrivers: drivers.length,
+    tripsToday: tripsToday.length,
+    completedToday,
+    inProgressToday,
+    pendingInvoices,
+    totalRevenue: totalRevenue._sum.total || 0,
+  };
+}
+
+async function getRecentTrips() {
+  const trips = await prisma.trip.findMany({
+    include: { client: true, driver: true },
+    orderBy: { scheduledTime: "desc" },
+    take: 5,
+  });
+  return trips;
+}
+
+export default async function Dashboard() {
+  const stats = await getStats();
+  const recentTrips = await getRecentTrips();
+
+  const statusColors = {
+    SCHEDULED: "bg-slate-100 text-slate-700",
+    DISPATCHED: "bg-blue-100 text-blue-700",
+    IN_PROGRESS: "bg-amber-100 text-amber-700",
+    COMPLETED: "bg-green-100 text-green-700",
+    CANCELLED: "bg-red-100 text-red-700",
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -31,8 +98,10 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-slate-900">5</div>
-              <p className="text-xs text-slate-500 mt-1">2 in maintenance</p>
+              <div className="text-2xl font-bold text-slate-900">
+                {stats.activeVehicles}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">Ready for dispatch</p>
             </CardContent>
           </Card>
 
@@ -44,8 +113,10 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-slate-900">6</div>
-              <p className="text-xs text-slate-500 mt-1">2 on trip</p>
+              <div className="text-2xl font-bold text-slate-900">
+                {stats.availableDrivers}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">Ready for assignment</p>
             </CardContent>
           </Card>
 
@@ -53,13 +124,15 @@ export default function Dashboard() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
                 <MapPin className="w-4 h-4" />
-                Today's Trips
+                Trips Today
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-slate-900">8</div>
+              <div className="text-2xl font-bold text-slate-900">
+                {stats.tripsToday}
+              </div>
               <p className="text-xs text-slate-500 mt-1">
-                1 in progress, 3 pending
+                {stats.inProgressToday} in progress
               </p>
             </CardContent>
           </Card>
@@ -72,8 +145,10 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-slate-900">3</div>
-              <p className="text-xs text-slate-500 mt-1">PKR 12,500 total</p>
+              <div className="text-2xl font-bold text-slate-900">
+                {stats.pendingInvoices}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">Awaiting payment</p>
             </CardContent>
           </Card>
         </div>
@@ -87,62 +162,39 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {[
-                    {
-                      id: 1,
-                      pickup: "Airport Terminal 1",
-                      dropoff: "Pearl Continental Hotel",
-                      driver: "Ahmed Hassan",
-                      status: "Completed",
-                      fare: "2,500",
-                    },
-                    {
-                      id: 2,
-                      pickup: "Ghulamali Station",
-                      dropoff: "Dolmen Mall",
-                      driver: "Muhammad Ali",
-                      status: "In Progress",
-                      fare: "1,800",
-                    },
-                    {
-                      id: 3,
-                      pickup: "Clifton",
-                      dropoff: "DHA",
-                      driver: "Fatima Khan",
-                      status: "Scheduled",
-                      fare: "3,000",
-                    },
-                  ].map((trip) => (
-                    <div
-                      key={trip.id}
-                      className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"
-                    >
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-slate-900">
-                          {trip.pickup} → {trip.dropoff}
-                        </p>
-                        <p className="text-xs text-slate-500 mt-1">
-                          {trip.driver}
-                        </p>
+                  {recentTrips.length === 0 ? (
+                    <p className="text-sm text-slate-500">No trips found</p>
+                  ) : (
+                    recentTrips.map((trip) => (
+                      <div
+                        key={trip.id}
+                        className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"
+                      >
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-slate-900">
+                            {trip.pickupAddress.split(",")[0]} →{" "}
+                            {trip.dropoffAddress.split(",")[0]}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {trip.client?.name} | {trip.driver?.name || "Unassigned"}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span
+                            className={`inline-block px-2 py-1 text-xs rounded-full font-medium ${
+                              statusColors[trip.status as keyof typeof statusColors] ||
+                              "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {trip.status}
+                          </span>
+                          <p className="text-sm font-semibold text-slate-900 mt-1">
+                            PKR {trip.fare.toFixed(0)}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span
-                          className={`inline-block px-2 py-1 text-xs rounded-full font-medium ${
-                            trip.status === "Completed"
-                              ? "bg-green-100 text-green-700"
-                              : trip.status === "In Progress"
-                              ? "bg-blue-100 text-blue-700"
-                              : "bg-yellow-100 text-yellow-700"
-                          }`}
-                        >
-                          {trip.status}
-                        </span>
-                        <p className="text-sm font-semibold text-slate-900 mt-1">
-                          PKR {trip.fare}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -151,42 +203,36 @@ export default function Dashboard() {
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Quick Stats</CardTitle>
+                <CardTitle>Revenue</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">This Week</span>
-                  <span className="text-lg font-bold text-slate-900">
-                    PKR 45,200
+                  <span className="text-sm text-slate-600">Paid Invoices</span>
+                  <span className="text-lg font-bold text-green-600">
+                    PKR {stats.totalRevenue.toLocaleString()}
                   </span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-2">
                   <div
-                    className="bg-blue-500 h-2 rounded-full"
-                    style={{ width: "72%" }}
+                    className="bg-green-500 h-2 rounded-full"
+                    style={{ width: "65%" }}
                   ></div>
-                </div>
-                <div className="pt-2 border-t border-slate-200">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">Target</span>
-                    <span className="text-slate-900">PKR 60,000</span>
-                  </div>
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="border-yellow-200 bg-yellow-50">
+            <Card className="border-amber-200 bg-amber-50">
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-yellow-900">
+                <CardTitle className="flex items-center gap-2 text-amber-900">
                   <AlertCircle className="w-4 h-4" />
-                  Alerts
+                  Quick Stats
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ul className="space-y-2 text-sm text-yellow-800">
-                  <li>• Vehicle XY-05-IJ maintenance pending</li>
-                  <li>• Driver Hassan Raza off duty</li>
-                  <li>• 1 invoice overdue</li>
+                <ul className="space-y-2 text-sm text-amber-800">
+                  <li>• {stats.completedToday} trips completed today</li>
+                  <li>• {stats.pendingInvoices} invoices pending</li>
+                  <li>• {stats.availableDrivers} drivers available</li>
                 </ul>
               </CardContent>
             </Card>
