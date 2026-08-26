@@ -412,29 +412,44 @@ async function main() {
 
   console.log("✓ Invoices created");
 
-  // Create payroll entries
+  // Create payroll entries with correct calculation (1 hour per completed trip)
   const payrollStart = new Date(today);
   payrollStart.setDate(payrollStart.getDate() - 7);
   const payrollEnd = new Date(payrollStart);
   payrollEnd.setDate(payrollEnd.getDate() + 7);
 
+  // Count completed trips per driver in this period to generate accurate payroll
   const payrollEntries = await Promise.all(
-    drivers.slice(0, 5).map((driver) =>
-      prisma.payrollEntry.create({
+    drivers.slice(0, 5).map(async (driver) => {
+      const completedTrips = await prisma.trip.findMany({
+        where: {
+          driverId: driver.id,
+          status: "COMPLETED",
+          scheduledTime: {
+            gte: payrollStart,
+            lte: payrollEnd,
+          },
+        },
+      });
+
+      const hoursWorked = completedTrips.length; // 1 hour per trip
+      const grossPay = hoursWorked * driver.hourlyRate;
+
+      return prisma.payrollEntry.create({
         data: {
           driverId: driver.id,
           periodStart: payrollStart,
           periodEnd: payrollEnd,
-          tripsCompleted: Math.floor(Math.random() * 15) + 5,
-          hoursWorked: Math.floor(Math.random() * 40) + 20,
-          grossPay: Math.floor(Math.random() * 50000) + 30000,
+          tripsCompleted: completedTrips.length,
+          hoursWorked,
+          grossPay,
           status: "PENDING",
         },
-      })
-    )
+      });
+    })
   );
 
-  console.log("✓ Payroll entries created");
+  console.log("✓ Payroll entries created (with accurate trip-based calculations)");
 
   // Create calendar events
   const calendarEvents = await Promise.all([
