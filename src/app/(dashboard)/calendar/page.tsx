@@ -3,13 +3,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { DashboardLayout } from "@/components/shared/dashboard-layout";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { ChevronLeft, ChevronRight, Loader2, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CalendarDays } from "lucide-react";
 import { getCalendarEvents } from "./actions";
 import { AddShiftDialog } from "./add-shift-dialog";
 import { EventDetailsPopover } from "./event-details-popover";
 import { MonthView } from "./month-view";
 import { WeekView } from "./week-view";
+import { EmptyState } from "@/components/shared/empty-state";
+import { CalendarSkeleton } from "@/components/shared/skeletons";
 
 interface CalendarEvent {
   id: string;
@@ -95,12 +96,12 @@ export default function CalendarPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Calendar</h1>
             <p className="text-slate-500 mt-1">View trips and driver shifts</p>
           </div>
-          <Button onClick={() => setIsDialogOpen(true)} className="gap-2">
+          <Button onClick={() => setIsDialogOpen(true)} className="gap-2 self-start">
             <Plus className="w-4 h-4" />
             Add Shift
           </Button>
@@ -164,11 +165,27 @@ export default function CalendarPage() {
 
         {/* Calendar View */}
         {isLoading ? (
-          <div className="flex items-center justify-center py-24">
-            <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
-          </div>
+          <CalendarSkeleton />
         ) : (
           <>
+            {events.length === 0 && (
+              <div className="border border-slate-200 rounded-lg bg-white">
+                <EmptyState
+                  icon={CalendarDays}
+                  title="No trips or shifts this period"
+                  description="Scheduled trips appear automatically. Add a driver shift to block time on the calendar."
+                  action={
+                    <Button onClick={() => setIsDialogOpen(true)} className="gap-2">
+                      <Plus className="w-4 h-4" />
+                      Add a shift
+                    </Button>
+                  }
+                  compact
+                />
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <div className="min-w-[640px]">
             {viewMode === "month" ? (
               <MonthView
                 currentDate={currentDate}
@@ -188,6 +205,8 @@ export default function CalendarPage() {
                 }}
               />
             )}
+              </div>
+            </div>
           </>
         )}
       </div>

@@ -3,9 +3,14 @@
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/shared/dashboard-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ChevronDown, ChevronRight, Wallet } from "lucide-react";
 import { getBillingData, getInvoices } from "../invoicing/actions";
 import { toast } from "sonner";
+import { EmptyState } from "@/components/shared/empty-state";
+import { BillingSkeleton, CardGridSkeleton } from "@/components/shared/skeletons";
+import { formatCurrency } from "@/lib/utils";
+import Link from "next/link";
 
 interface BillingClient {
   client: any;
@@ -89,15 +94,22 @@ export default function BillingPage() {
           <p className="text-slate-500 mt-1">Client invoicing summary</p>
         </div>
 
+        {isLoading ? (
+          <div className="space-y-4">
+            <CardGridSkeleton count={3} className="sm:grid-cols-3 lg:grid-cols-3" />
+            <BillingSkeleton />
+          </div>
+        ) : (
+          <>
         {/* Summary Cards */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-slate-600">Total Revenue</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">
-                PKR {totalRevenue.toLocaleString()}
+              <div className="text-2xl font-bold text-green-600 tabular-nums">
+                {formatCurrency(totalRevenue)}
               </div>
               <p className="text-xs text-slate-500 mt-1">All paid invoices</p>
             </CardContent>
@@ -108,8 +120,8 @@ export default function BillingPage() {
               <CardTitle className="text-sm text-slate-600">Outstanding</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-600">
-                PKR {totalOutstanding.toLocaleString()}
+              <div className="text-2xl font-bold text-orange-600 tabular-nums">
+                {formatCurrency(totalOutstanding)}
               </div>
               <p className="text-xs text-slate-500 mt-1">Unpaid & overdue</p>
             </CardContent>
@@ -129,13 +141,18 @@ export default function BillingPage() {
         </div>
 
         {/* Clients List */}
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
-          </div>
-        ) : clientData.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-slate-500 font-medium">No clients with invoices yet</p>
+        {clientData.length === 0 ? (
+          <div className="border border-slate-200 rounded-lg bg-white">
+            <EmptyState
+              icon={Wallet}
+              title="No client billing yet"
+              description="Once invoices are generated, you’ll see each client’s invoiced, paid, and outstanding totals here."
+              action={
+                <Link href="/invoicing">
+                  <Button className="gap-2">Go to invoicing</Button>
+                </Link>
+              }
+            />
           </div>
         ) : (
           <div className="space-y-2">
@@ -150,8 +167,8 @@ export default function BillingPage() {
                     onClick={() => handleExpandClient(data.client.id)}
                     className="w-full text-left border border-slate-200 rounded-lg p-4 hover:bg-slate-50 transition-colors"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 flex items-center gap-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex-1 flex items-center gap-4 min-w-0">
                         <div>
                           {isExpanded ? (
                             <ChevronDown className="w-5 h-5 text-slate-400" />
@@ -159,31 +176,31 @@ export default function BillingPage() {
                             <ChevronRight className="w-5 h-5 text-slate-400" />
                           )}
                         </div>
-                        <div className="flex-1">
-                          <p className="font-semibold text-slate-900">{data.client.name}</p>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-slate-900 truncate">{data.client.name}</p>
                           <p className="text-xs text-slate-500">
                             {data.tripCount} trips • {data.invoiceCount} invoices
                           </p>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-8 text-right min-w-fit">
+                      <div className="grid grid-cols-3 gap-3 sm:gap-8 text-right w-full sm:w-auto sm:min-w-fit">
                         <div>
                           <p className="text-xs text-slate-600">Invoiced</p>
-                          <p className="font-semibold text-slate-900">
-                            PKR {data.totalInvoiced.toLocaleString()}
+                          <p className="font-semibold text-slate-900 tabular-nums text-sm sm:text-base">
+                            {formatCurrency(data.totalInvoiced)}
                           </p>
                         </div>
                         <div>
                           <p className="text-xs text-slate-600">Paid</p>
-                          <p className="font-semibold text-green-600">
-                            PKR {data.totalPaid.toLocaleString()}
+                          <p className="font-semibold text-green-600 tabular-nums text-sm sm:text-base">
+                            {formatCurrency(data.totalPaid)}
                           </p>
                         </div>
                         <div>
                           <p className="text-xs text-slate-600">Outstanding</p>
-                          <p className="font-semibold text-orange-600">
-                            PKR {data.totalOutstanding.toLocaleString()}
+                          <p className="font-semibold text-orange-600 tabular-nums text-sm sm:text-base">
+                            {formatCurrency(data.totalOutstanding)}
                           </p>
                         </div>
                       </div>
@@ -209,8 +226,8 @@ export default function BillingPage() {
                               </p>
                             </div>
                             <div className="flex items-center gap-4">
-                              <span className="font-semibold">
-                                PKR {invoice.total.toFixed(0)}
+                              <span className="font-semibold tabular-nums">
+                                {formatCurrency(invoice.total)}
                               </span>
                               <span
                                 className={`px-2 py-1 rounded text-xs font-medium ${
@@ -230,6 +247,8 @@ export default function BillingPage() {
               );
             })}
           </div>
+        )}
+          </>
         )}
       </div>
     </DashboardLayout>
