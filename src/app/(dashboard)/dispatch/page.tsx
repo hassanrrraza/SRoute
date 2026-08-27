@@ -1,23 +1,34 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { DashboardLayout } from "@/components/shared/dashboard-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, GripVertical } from "lucide-react";
+import { EmptyState } from "@/components/shared/empty-state";
+import { DispatchSkeleton } from "@/components/shared/skeletons";
+import { cn, formatCurrency } from "@/lib/utils";
+import {
+  GripVertical,
+  Inbox,
+  Send,
+  Timer,
+  CheckCircle2,
+  Users,
+  Truck,
+} from "lucide-react";
 import {
   DndContext,
   DragEndEvent,
-  closestCenter,
+  DragOverlay,
+  DragStartEvent,
   PointerSensor,
+  pointerWithin,
+  closestCorners,
   useSensor,
   useSensors,
+  useDroppable,
+  useDraggable,
+  type CollisionDetection,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { updateTrip, getTrips, getAllDrivers, getActiveVehicles } from "../trips/actions";
 import { toast } from "sonner";
 import { TripDialog } from "../trips/trip-dialog";
@@ -29,11 +40,12 @@ interface Trip {
   scheduledTime: Date;
   status: string;
   fare: number;
+  clientId?: string;
+  driverId?: string | null;
+  vehicleId?: string | null;
   client?: { name: string };
   driver?: { name: string } | null;
   vehicle?: { plate: string } | null;
-  driverId?: string;
-  vehicleId?: string;
 }
 
 interface Driver {
@@ -50,92 +62,263 @@ interface Vehicle {
   status: string;
 }
 
-function TripCard({ trip, onEdit }: { trip: Trip; onEdit: (trip: Trip) => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: trip.id });
+const COLUMN_IDS = ["SCHEDULED", "DISPATCHED", "IN_PROGRESS", "COMPLETED"] as const;
+type ColumnId = (typeof COLUMN_IDS)[number];
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
+const COLUMN_META: Record<
+  ColumnId,
+  {
+    title: string;
+    empty: string;
+    icon: typeof Inbox;
+    tint: string;
+    headerTint: string;
+    accent: string;
+  }
+> = {
+  SCHEDULED: {
+    title: "Unassigned",
+    empty: "No unassigned trips",
+    icon: Inbox,
+    tint: "bg-slate-50",
+    headerTint: "bg-slate-100 text-slate-700",
+    accent: "border-l-slate-400",
+  },
+  DISPATCHED: {
+    title: "Dispatched",
+    empty: "No dispatched trips",
+    icon: Send,
+    tint: "bg-teal-50/40",
+    headerTint: "bg-teal-50 text-teal-800",
+    accent: "border-l-teal-500",
+  },
+  IN_PROGRESS: {
+    title: "In Progress",
+    empty: "No trips in progress",
+    icon: Timer,
+    tint: "bg-amber-50/40",
+    headerTint: "bg-amber-50 text-amber-800",
+    accent: "border-l-amber-500",
+  },
+  COMPLETED: {
+    title: "Completed Today",
+    empty: "No trips completed today",
+    icon: CheckCircle2,
+    tint: "bg-green-50/40",
+    headerTint: "bg-green-50 text-green-800",
+    accent: "border-l-green-500",
+  },
+};
 
-  const formatTime = (date: Date) => {
-    const d = new Date(date);
-    return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-  };
+const collisionDetection: CollisionDetection = (args) => {
+  const pointerHits = pointerWithin(args);
+  const columnHit = pointerHits.find((hit) =>
+    COLUMN_IDS.includes(String(hit.id) as ColumnId)
+  );
+  if (columnHit) return [columnHit];
+  if (pointerHits.length > 0) return pointerHits;
+  return closestCorners(args);
+};
+
+function formatTime(date: Date) {
+  return new Date(date).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
+
+function TripCardBody({ trip, accent }: { trip: Trip; accent: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <GripVertical className="w-4 h-4 text-slate-300 mt-1 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="text-base font-bold text-slate-900 leading-none tracking-tight">
+          {formatTime(trip.scheduledTime)}
+        </div>
+        <div className="text-sm font-medium text-slate-800 mt-1.5 truncate">
+          {trip.client?.name || "Unknown client"}
+        </div>
+        <div className="text-xs text-slate-500 mt-0.5 truncate">
+          {trip.driver?.name || "Unassigned"}
+          {trip.vehicle?.plate ? ` · ${trip.vehicle.plate}` : ""}
+        </div>
+        <div className="text-xs text-slate-400 mt-1.5 truncate">
+          {trip.pickupAddress.split(",")[0]} → {trip.dropoffAddress.split(",")[0]}
+        </div>
+        <div className="text-xs font-semibold text-slate-700 mt-2 tabular-nums">
+          {formatCurrency(trip.fare)}
+        </div>
+      </div>
+      <span className={cn("sr-only", accent)} />
+    </div>
+  );
+}
+
+function TripCard({
+  trip,
+  accent,
+  onEdit,
+}: {
+  trip: Trip;
+  accent: string;
+  onEdit: (trip: Trip) => void;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: trip.id,
+  });
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
-      className={`bg-white border border-slate-200 rounded-lg p-3 cursor-move hover:shadow-md transition-shadow ${
-        isDragging ? "shadow-lg" : ""
-      }`}
-      onClick={() => onEdit(trip)}
+      {...listeners}
+      {...attributes}
+      onClick={() => {
+        if (!isDragging) onEdit(trip);
+      }}
+      className={cn(
+        "bg-white border border-slate-200 border-l-4 rounded-lg p-3 cursor-grab active:cursor-grabbing transition-shadow duration-150",
+        accent,
+        isDragging ? "opacity-30" : "hover:shadow-md"
+      )}
     >
-      <div className="flex items-start gap-2">
-        <div {...attributes} {...listeners} className="mt-1">
-          <GripVertical className="w-4 h-4 text-slate-400" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm">{formatTime(trip.scheduledTime)}</div>
-          <div className="text-xs text-slate-600 truncate">
-            {trip.pickupAddress.split(",")[0]} → {trip.dropoffAddress.split(",")[0]}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">
-            {trip.client?.name}
-          </div>
-          <div className="text-xs font-medium text-slate-900 mt-1">
-            PKR {trip.fare.toFixed(0)}
-          </div>
-          {trip.driver && (
-            <div className="text-xs text-slate-700 mt-1">
-              👤 {trip.driver.name}
-            </div>
-          )}
-          {trip.vehicle && (
-            <div className="text-xs text-slate-700">
-              🚗 {trip.vehicle.plate}
-            </div>
-          )}
-        </div>
-      </div>
+      <TripCardBody trip={trip} accent={accent} />
     </div>
   );
 }
 
 function Column({
-  title,
+  id,
   trips,
   onEdit,
 }: {
-  title: string;
+  id: ColumnId;
   trips: Trip[];
   onEdit: (trip: Trip) => void;
 }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  const meta = COLUMN_META[id];
+  const EmptyIcon = meta.icon;
+
   return (
-    <div className="flex-1 min-w-0 bg-slate-50 rounded-lg p-4 border-2 border-dashed border-slate-200">
-      <div className="mb-4">
-        <h2 className="font-semibold text-slate-900">{title}</h2>
-        <p className="text-xs text-slate-500">{trips.length} trips</p>
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex flex-col min-w-[210px] rounded-lg p-3 border transition-colors duration-150 min-h-[420px]",
+        meta.tint,
+        isOver
+          ? "border-dashed border-teal-400 bg-teal-50 ring-2 ring-teal-300/70"
+          : "border-slate-200"
+      )}
+    >
+      <div
+        className={cn(
+          "flex items-center justify-between rounded-md px-2.5 py-1.5 mb-3",
+          meta.headerTint
+        )}
+      >
+        <h2 className="text-sm font-semibold">
+          {meta.title}{" "}
+          <span className="font-medium opacity-70">({trips.length})</span>
+        </h2>
       </div>
 
-      <div className="space-y-2 min-h-96">
-        <SortableContext
-          items={trips.map((t) => t.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          {trips.map((trip) => (
-            <TripCard key={trip.id} trip={trip} onEdit={onEdit} />
-          ))}
-        </SortableContext>
-        {trips.length === 0 && (
-          <div className="text-center text-slate-400 text-sm py-8">
-            No trips
-          </div>
+      <div className="flex-1 space-y-2">
+        {trips.length === 0 ? (
+          <EmptyState icon={EmptyIcon} title={meta.empty} compact className="py-16" />
+        ) : (
+          trips.map((trip) => (
+            <TripCard key={trip.id} trip={trip} accent={meta.accent} onEdit={onEdit} />
+          ))
         )}
       </div>
+    </div>
+  );
+}
+
+function AvailabilityPanel({
+  drivers,
+  vehicles,
+}: {
+  drivers: Driver[];
+  vehicles: Vehicle[];
+}) {
+  const availableDrivers = drivers.filter((d) => d.status === "AVAILABLE");
+  const activeVehicles = vehicles.filter((v) => v.status === "ACTIVE");
+
+  return (
+    <div className="w-full xl:w-72 shrink-0 space-y-4">
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+            <Users className="w-4 h-4 text-teal-600" />
+            Available drivers
+            <span className="ml-auto text-xs font-medium text-slate-500">
+              {availableDrivers.length}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {availableDrivers.length === 0 ? (
+            <p className="text-xs text-slate-500">All drivers are currently assigned.</p>
+          ) : (
+            <ul className="space-y-2">
+              {availableDrivers.map((driver) => (
+                <li
+                  key={driver.id}
+                  className="flex items-center gap-2.5 rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2"
+                >
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-[11px] font-semibold text-teal-800">
+                    {initials(driver.name)}
+                  </span>
+                  <span className="text-sm text-slate-800 truncate">{driver.name}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+            <Truck className="w-4 h-4 text-teal-600" />
+            Active vehicles
+            <span className="ml-auto text-xs font-medium text-slate-500">
+              {activeVehicles.length}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {activeVehicles.length === 0 ? (
+            <p className="text-xs text-slate-500">No active vehicles available.</p>
+          ) : (
+            <ul className="space-y-2">
+              {activeVehicles.map((vehicle) => (
+                <li
+                  key={vehicle.id}
+                  className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2"
+                >
+                  <span className="font-mono text-sm font-medium text-slate-800">
+                    {vehicle.plate}
+                  </span>
+                  <span className="text-xs text-slate-500 truncate ml-2">
+                    {vehicle.make} {vehicle.model}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -147,13 +330,14 @@ export default function DispatchPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
+  const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
+  const isDraggingRef = useRef(false);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { distance: 8 } as any)
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
+  const loadData = useCallback(async (silent = false) => {
+    if (isDraggingRef.current) return;
+    if (!silent) setIsLoading(true);
     try {
       const [tripsData, driversData, vehiclesData] = await Promise.all([
         getTrips(),
@@ -163,34 +347,49 @@ export default function DispatchPage() {
       setTrips(tripsData as Trip[]);
       setDrivers(driversData);
       setVehicles(vehiclesData);
-    } catch (error) {
+    } catch {
       toast.error("Failed to load dispatch data");
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 10000);
+    const interval = setInterval(() => loadData(true), 10000);
     return () => clearInterval(interval);
   }, [loadData]);
 
+  const resolveColumn = (overId: string): ColumnId | null => {
+    if (COLUMN_IDS.includes(overId as ColumnId)) return overId as ColumnId;
+    const overTrip = trips.find((t) => t.id === overId);
+    if (!overTrip) return null;
+    if (overTrip.status === "SCHEDULED" && !overTrip.driverId) return "SCHEDULED";
+    if (COLUMN_IDS.includes(overTrip.status as ColumnId)) return overTrip.status as ColumnId;
+    return null;
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    isDraggingRef.current = true;
+    const trip = trips.find((t) => t.id === event.active.id);
+    setActiveTrip(trip ?? null);
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
+    isDraggingRef.current = false;
+    setActiveTrip(null);
 
     if (!over) return;
 
-    const tripId = active.id as string;
-    const newStatus = over.id as string;
-
+    const tripId = String(active.id);
+    const newStatus = resolveColumn(String(over.id));
     const trip = trips.find((t) => t.id === tripId);
-    if (!trip || trip.status === newStatus) return;
+    if (!trip || !newStatus || trip.status === newStatus) return;
 
-    const updatedTrips = trips.map((t) =>
-      t.id === tripId ? { ...t, status: newStatus } : t
+    setTrips((prev) =>
+      prev.map((t) => (t.id === tripId ? { ...t, status: newStatus } : t))
     );
-    setTrips(updatedTrips);
 
     try {
       const result = await updateTrip({
@@ -198,23 +397,23 @@ export default function DispatchPage() {
         pickupAddress: trip.pickupAddress,
         dropoffAddress: trip.dropoffAddress,
         scheduledTime: trip.scheduledTime,
-        clientId: trip.client?.name || "",
+        clientId: trip.clientId || "",
         driverId: trip.driverId || null,
         vehicleId: trip.vehicleId || null,
         fare: trip.fare,
-        status: newStatus as any,
+        status: newStatus,
       });
 
       if (result.error) {
         toast.error(result.error);
-        await loadData();
+        await loadData(true);
       } else {
-        toast.success(`Trip status updated`);
-        await loadData();
+        toast.success("Trip status updated");
+        await loadData(true);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to update trip");
-      await loadData();
+      await loadData(true);
     }
   };
 
@@ -226,9 +425,7 @@ export default function DispatchPage() {
   const handleDialogClose = (saved: boolean) => {
     setIsDialogOpen(false);
     setEditingTrip(null);
-    if (saved) {
-      loadData();
-    }
+    if (saved) loadData(true);
   };
 
   const unassignedTrips = trips.filter((t) => t.status === "SCHEDULED" && !t.driverId);
@@ -245,15 +442,17 @@ export default function DispatchPage() {
     );
   });
 
-  const availableDriversCount = drivers.filter((d) => d.status === "AVAILABLE").length;
-  const activeVehiclesCount = vehicles.filter((v) => v.status === "ACTIVE").length;
+  const columns: { id: ColumnId; trips: Trip[] }[] = [
+    { id: "SCHEDULED", trips: unassignedTrips },
+    { id: "DISPATCHED", trips: dispatchedTrips },
+    { id: "IN_PROGRESS", trips: inProgressTrips },
+    { id: "COMPLETED", trips: completedTodayTrips },
+  ];
 
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center py-24">
-          <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
-        </div>
+        <DispatchSkeleton />
       </DashboardLayout>
     );
   }
@@ -268,63 +467,46 @@ export default function DispatchPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-600">Available Drivers</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">{availableDriversCount}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-600">Active Vehicles</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{activeVehiclesCount}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-600">Total Trips</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-slate-900">{trips.length}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-600">Completed Today</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-700">{completedTodayTrips.length}</div>
-            </CardContent>
-          </Card>
-        </div>
-
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={collisionDetection}
+          onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          onDragCancel={() => {
+            isDraggingRef.current = false;
+            setActiveTrip(null);
+          }}
         >
-          <div className="grid grid-cols-4 gap-4">
-            <SortableContext items={unassignedTrips.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-              <Column title="Unassigned" trips={unassignedTrips} onEdit={handleEditTrip} />
-            </SortableContext>
-
-            <SortableContext items={dispatchedTrips.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-              <Column title="Dispatched" trips={dispatchedTrips} onEdit={handleEditTrip} />
-            </SortableContext>
-
-            <SortableContext items={inProgressTrips.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-              <Column title="In Progress" trips={inProgressTrips} onEdit={handleEditTrip} />
-            </SortableContext>
-
-            <SortableContext items={completedTodayTrips.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-              <Column title="Completed Today" trips={completedTodayTrips} onEdit={handleEditTrip} />
-            </SortableContext>
+          <div className="flex flex-col xl:flex-row gap-4">
+            <div className="flex-1 min-w-0 overflow-x-auto">
+              <div className="grid grid-cols-4 gap-3 min-w-[880px]">
+                {columns.map((col) => (
+                  <Column key={col.id} id={col.id} trips={col.trips} onEdit={handleEditTrip} />
+                ))}
+              </div>
+            </div>
+            <AvailabilityPanel drivers={drivers} vehicles={vehicles} />
           </div>
+
+          <DragOverlay dropAnimation={null}>
+            {activeTrip ? (
+              <div
+                className={cn(
+                  "bg-white border border-slate-200 border-l-4 rounded-lg p-3 shadow-lg scale-[1.02] cursor-grabbing",
+                  COLUMN_META[(activeTrip.status === "SCHEDULED" ? "SCHEDULED" : activeTrip.status) as ColumnId]
+                    ?.accent ?? "border-l-slate-400"
+                )}
+              >
+                <TripCardBody
+                  trip={activeTrip}
+                  accent={
+                    COLUMN_META[(activeTrip.status === "SCHEDULED" ? "SCHEDULED" : activeTrip.status) as ColumnId]
+                      ?.accent ?? "border-l-slate-400"
+                  }
+                />
+              </div>
+            ) : null}
+          </DragOverlay>
         </DndContext>
       </div>
 

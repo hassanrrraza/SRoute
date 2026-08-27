@@ -17,7 +17,9 @@ import { DriverDialog } from "./driver-dialog";
 import { ConfirmDeleteDialog } from "@/components/shared/confirm-delete-dialog";
 import { deleteDriver, getDrivers } from "./actions";
 import { toast } from "sonner";
-import { Trash2, Edit2, Plus, Loader2 } from "lucide-react";
+import { Trash2, Edit2, Plus, Users } from "lucide-react";
+import { EmptyState } from "@/components/shared/empty-state";
+import { TableSkeleton } from "@/components/shared/skeletons";
 
 const driverStatusColorMap = {
   AVAILABLE: "bg-green-100 text-green-700",
@@ -124,12 +126,12 @@ export default function DriversPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Drivers</h1>
             <p className="text-slate-500 mt-1">Manage your driver fleet</p>
           </div>
-          <Button onClick={handleAddDriver} className="gap-2">
+          <Button onClick={handleAddDriver} className="gap-2 self-start">
             <Plus className="w-4 h-4" />
             Add Driver
           </Button>
@@ -147,23 +149,30 @@ export default function DriversPage() {
 
         {/* Table */}
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
-          </div>
+          <TableSkeleton rows={7} cols={6} />
         ) : filteredDrivers.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-slate-500 font-medium">
-              {searchQuery ? "No drivers found" : "No drivers yet"}
-            </p>
-            {!searchQuery && (
-              <Button onClick={handleAddDriver} variant="outline" className="mt-4">
-                Create your first driver
-              </Button>
-            )}
+          <div className="border border-slate-200 rounded-lg bg-white">
+            <EmptyState
+              icon={Users}
+              title={searchQuery ? "No drivers match your search" : "No drivers on the roster yet"}
+              description={
+                searchQuery
+                  ? "Try a different name, status, or license number."
+                  : "Add a driver to start assigning trips and generating payroll."
+              }
+              action={
+                !searchQuery ? (
+                  <Button onClick={handleAddDriver} className="gap-2">
+                    <Plus className="w-4 h-4" />
+                    Add your first driver
+                  </Button>
+                ) : undefined
+              }
+            />
           </div>
         ) : (
-          <div className="border border-slate-200 rounded-lg overflow-hidden">
-            <Table>
+          <div className="border border-slate-200 rounded-lg overflow-x-auto">
+            <Table className="min-w-[720px]">
               <TableHeader>
                 <TableRow className="bg-slate-50">
                   <TableHead>Name</TableHead>
