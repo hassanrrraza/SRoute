@@ -20,11 +20,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { Loader2, Plus, Trash2, Edit2 } from "lucide-react";
+import { Plus, Trash2, Edit2, FileText } from "lucide-react";
 import { getInvoices, deleteInvoice } from "./actions";
 import { GenerateInvoiceDialog } from "./generate-invoice-dialog";
 import { InvoiceDetailDialog } from "./invoice-detail-dialog";
 import { ConfirmDeleteDialog } from "@/components/shared/confirm-delete-dialog";
+import { EmptyState } from "@/components/shared/empty-state";
+import { TableSkeleton } from "@/components/shared/skeletons";
+import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface Invoice {
@@ -143,12 +146,12 @@ export default function InvoicingPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Invoicing</h1>
             <p className="text-slate-500 mt-1">Create and manage invoices</p>
           </div>
-          <Button onClick={() => setGenerateDialogOpen(true)} className="gap-2">
+          <Button onClick={() => setGenerateDialogOpen(true)} className="gap-2 self-start">
             <Plus className="w-4 h-4" />
             Generate Invoice
           </Button>
@@ -179,23 +182,34 @@ export default function InvoicingPage() {
 
         {/* Table */}
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
-          </div>
+          <TableSkeleton rows={6} cols={7} />
         ) : filteredInvoices.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-slate-500 font-medium">
-              {invoices.length === 0 ? "No invoices yet" : "No invoices matching filters"}
-            </p>
-            {invoices.length === 0 && (
-              <Button onClick={() => setGenerateDialogOpen(true)} variant="outline" className="mt-4">
-                Generate your first invoice
-              </Button>
-            )}
+          <div className="border border-slate-200 rounded-lg bg-white">
+            <EmptyState
+              icon={FileText}
+              title={
+                invoices.length === 0
+                  ? "No invoices generated yet"
+                  : "No invoices match these filters"
+              }
+              description={
+                invoices.length === 0
+                  ? "Generate an invoice from a completed trip to start billing clients."
+                  : "Try a different status or search term."
+              }
+              action={
+                invoices.length === 0 ? (
+                  <Button onClick={() => setGenerateDialogOpen(true)} className="gap-2">
+                    <Plus className="w-4 h-4" />
+                    Generate your first invoice
+                  </Button>
+                ) : undefined
+              }
+            />
           </div>
         ) : (
-          <div className="border border-slate-200 rounded-lg overflow-hidden">
-            <Table>
+          <div className="border border-slate-200 rounded-lg overflow-x-auto">
+            <Table className="min-w-[800px]">
               <TableHeader>
                 <TableRow className="bg-slate-50">
                   <TableHead>Invoice #</TableHead>
@@ -229,8 +243,8 @@ export default function InvoicingPage() {
                     <TableCell className="text-sm">
                       {formatDate(invoice.dueDate)}
                     </TableCell>
-                    <TableCell className="text-right font-semibold">
-                      PKR {invoice.total.toFixed(0)}
+                    <TableCell className="text-right font-semibold tabular-nums">
+                      {formatCurrency(invoice.total)}
                     </TableCell>
                     <TableCell>
                       <StatusBadge

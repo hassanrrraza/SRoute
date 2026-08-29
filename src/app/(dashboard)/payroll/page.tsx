@@ -19,11 +19,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { Loader2, Plus, Trash2, Eye } from "lucide-react";
+import { Plus, Trash2, Eye, Wallet } from "lucide-react";
 import { getPayrollEntries, deletePayrollEntry } from "./actions";
 import { GeneratePayrollDialog } from "./generate-payroll-dialog";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import { ConfirmDeleteDialog } from "@/components/shared/confirm-delete-dialog";
+import { EmptyState } from "@/components/shared/empty-state";
+import { TableSkeleton } from "@/components/shared/skeletons";
+import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface PayrollEntry {
@@ -126,12 +129,12 @@ export default function PayrollPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Payroll</h1>
             <p className="text-slate-500 mt-1">Manage driver pay</p>
           </div>
-          <Button onClick={() => setGenerateDialogOpen(true)} className="gap-2">
+          <Button onClick={() => setGenerateDialogOpen(true)} className="gap-2 self-start">
             <Plus className="w-4 h-4" />
             Generate Payroll
           </Button>
@@ -141,7 +144,7 @@ export default function PayrollPage() {
         {totalPending > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
             <p className="text-sm font-medium text-amber-900">
-              Pending Payroll: PKR {totalPending.toLocaleString()}
+              Pending Payroll: {formatCurrency(totalPending)}
             </p>
           </div>
         )}
@@ -162,27 +165,34 @@ export default function PayrollPage() {
 
         {/* Table */}
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
-          </div>
+          <TableSkeleton rows={5} cols={6} />
         ) : filteredEntries.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-slate-500 font-medium">
-              {entries.length === 0 ? "No payroll entries yet" : "No entries matching filter"}
-            </p>
-            {entries.length === 0 && (
-              <Button
-                onClick={() => setGenerateDialogOpen(true)}
-                variant="outline"
-                className="mt-4"
-              >
-                Generate your first payroll
-              </Button>
-            )}
+          <div className="border border-slate-200 rounded-lg bg-white">
+            <EmptyState
+              icon={Wallet}
+              title={
+                entries.length === 0
+                  ? "No payroll runs yet"
+                  : "No payroll entries match this filter"
+              }
+              description={
+                entries.length === 0
+                  ? "Generate payroll for a pay period to calculate driver hours and gross pay from completed trips."
+                  : "Try switching between Pending and Paid."
+              }
+              action={
+                entries.length === 0 ? (
+                  <Button onClick={() => setGenerateDialogOpen(true)} className="gap-2">
+                    <Plus className="w-4 h-4" />
+                    Generate your first payroll
+                  </Button>
+                ) : undefined
+              }
+            />
           </div>
         ) : (
-          <div className="border border-slate-200 rounded-lg overflow-hidden">
-            <Table>
+          <div className="border border-slate-200 rounded-lg overflow-x-auto">
+            <Table className="min-w-[720px]">
               <TableHeader>
                 <TableRow className="bg-slate-50">
                   <TableHead>Driver</TableHead>
@@ -203,8 +213,8 @@ export default function PayrollPage() {
                     </TableCell>
                     <TableCell className="text-center">{entry.tripsCompleted}</TableCell>
                     <TableCell className="text-center">{entry.hoursWorked}</TableCell>
-                    <TableCell className="text-right font-semibold">
-                      PKR {entry.grossPay.toFixed(0)}
+                    <TableCell className="text-right font-semibold tabular-nums">
+                      {formatCurrency(entry.grossPay)}
                     </TableCell>
                     <TableCell>
                       <StatusBadge
